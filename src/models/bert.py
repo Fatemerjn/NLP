@@ -11,12 +11,9 @@ def _device():
         return torch.device("mps")
     return torch.device("cpu")
 
-def train_eval_bert(
-    train_texts, train_labels,
-    test_texts,  test_labels,
-    model_name="bert-base-multilingual-cased",
-    epochs=3, lr=2e-5, batch_size=8, seed=42
-) -> Dict:
+def train_eval_bert(train_texts, train_labels, test_texts, test_labels,
+                    model_name="bert-base-multilingual-cased",
+                    epochs=3, lr=2e-5, batch_size=8, seed=42) -> Dict:
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     device = _device()
 
@@ -26,25 +23,20 @@ def train_eval_bert(
 
     tok = AutoTokenizer.from_pretrained(model_name)
 
-    def tokenize(batch):
+    def tok_fn(batch):
         return tok(batch["text"], truncation=True, padding="max_length", max_length=256)
 
-    train_ds = Dataset.from_dict({"text": train_texts, "label": y_train}).map(tokenize, batched=True)
-    test_ds  = Dataset.from_dict({"text": test_texts,  "label": y_test}).map(tokenize, batched=True)
+    train_ds = Dataset.from_dict({"text": train_texts, "label": y_train}).map(tok_fn, batched=True)
+    test_ds  = Dataset.from_dict({"text": test_texts,  "label": y_test}).map(tok_fn, batched=True)
 
-    # Important bits for Apple Silicon:
-    # - device_map="auto" lets Transformers place the model on MPS
-    # - torch_dtype=torch.float32 avoids half-precision issues on MPS
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
         num_labels=len(le.classes_),
-        torch_dtype=torch.float32,
-        device_map="auto"
+        torch_dtype=torch.float32
     ).to(device)
 
     acc = evaluate.load("accuracy")
     f1  = evaluate.load("f1")
-
     def compute_metrics(p):
         preds = np.argmax(p.predictions, axis=1)
         return {
@@ -64,18 +56,10 @@ def train_eval_bert(
         load_best_model_at_end=True,
         metric_for_best_model="f1_macro",
         logging_steps=50,
-        fp16=False,           # keep fp32 on MPS
-        bf16=False
+        fp16=False, bf16=False
     )
 
-    trainer = Trainer(
-        model=model,
-        args=args,
-        train_dataset=train_ds,
-        eval_dataset=test_ds,
-        compute_metrics=compute_metrics
-    )
-
+    trainer = Trainer(model=model, args=args, train_dataset=train_ds, eval_dataset=test_ds, compute_metrics=compute_metrics)
     trainer.train()
     eval_metrics = trainer.evaluate()
     return {"label_encoder": le, "tokenizer": tok, "metrics": eval_metrics, "model": model}
