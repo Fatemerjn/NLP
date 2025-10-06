@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+.env
+.DS_Store
+
+# data and generated artifacts
+data/*
+!data/README.md
+outputs/*
+!outputs/README.md
+checkpoints/
+logs/
